@@ -53,7 +53,8 @@ class DQN(nn.Module):
 
     def forward(self, x):
         """
-        Args:
+        Args
+        ------
             x: (batch_size, num_channels, image_height, image_width) tensor
         Returns
         -------
@@ -69,10 +70,10 @@ class DQN(nn.Module):
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument("--conv_dims", type=list, default=CONV_DIMS)
-        parser.add_argument("--conv_kernels", type=list, default=CONV_KERNELS)
-        parser.add_argument("--conv_strides", type=list, default=CONV_STRIDES)
-        parser.add_argument("--fc_dims", type=list, default=FC_DIMS)
+        parser.add_argument("--conv_dims", type=int, nargs='+', default=CONV_DIMS)
+        parser.add_argument("--conv_kernels", type=int, nargs='+', default=CONV_KERNELS)
+        parser.add_argument("--conv_strides", type=int, nargs='+', default=CONV_STRIDES)
+        parser.add_argument("--fc_dims", type=int, nargs='+', default=FC_DIMS)
         return parser
 
 
@@ -80,13 +81,12 @@ class DQN(nn.Module):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
     DQN.add_to_argparse(parser)
-    data_config = {'input_dims': (3, 128, 128), 'num_classes': 4}
+    data_config = {'input_dims': (3, 64, 64), 'num_classes': 15}
     args = parser.parse_args()
     nnet = DQN(data_config, args)
-    x = torch.randn(5, 3, 128, 128)
+    x = torch.randn(5, 3, 64, 64)
     y = nnet(x)
     print(nnet)
     print("x shape:", x.shape)
     print("y shape:", y.shape)
-    assert y.shape == (5, 4)
-
+    assert y.shape == (5, 15)
