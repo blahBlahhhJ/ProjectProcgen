@@ -4,7 +4,7 @@ import numpy as np
 # from trees import SumTree, MinTree
 
 class ReplayBuffer:
-    def __init__(self, mem_size=1e6):
+    def __init__(self, mem_size=1000000):
         self.curr_size = 0
         self.next_idx = 0
         self.mem_size = mem_size

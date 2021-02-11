@@ -1,17 +1,22 @@
+"""
+    All the networks for Deep Q Learning.
+"""
 import argparse
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-CONV_DIMS = [32, 64, 64]
+from .utils import ImpalaBlock
+
+CONV_DIMS = [16, 32, 32]
 CONV_KERNELS = [7, 5, 3]
 CONV_STRIDES = [4, 2, 1]
-FC_DIMS = [512]
+FC_DIMS = [256]
 
-class DQN(nn.Module):
+class NatureDQN(nn.Module):
     """
         Simple Deep Q Network for predicting the Q value for each actions.
+        from Mnih in the famous Nature paper.
     """
     def __init__(self, data_config, args):
         super().__init__()
@@ -77,13 +82,56 @@ class DQN(nn.Module):
         return parser
 
 
+
+
+class ImpalaDQN(nn.Module):
+    def __init__(self, data_config, args):
+        super().__init__()
+        C, H, W = data_config['input_dims']
+        num_classes = data_config['num_classes']
+
+        self.args = vars(args) if args is not None else {}
+        conv_dims = self.args.get('conv_dims', CONV_DIMS)
+        fc_dims = self.args.get('fc_dims', FC_DIMS)
+
+        self.block1 = ImpalaBlock(C, conv_dims[0])
+        H = (H - 2 - 1) // 2
+        W = (W - 2 - 1) // 2
+        self.block2 = ImpalaBlock(conv_dims[0], conv_dims[1])
+        H = (H - 2 - 1) // 2
+        W = (W - 2 - 1) // 2
+        self.block3 = ImpalaBlock(conv_dims[1], conv_dims[2])
+        H = (H - 2 - 1) // 2
+        W = (W - 2 - 1) // 2
+        self.fc1 = nn.Linear(conv_dims[2] * H * W, fc_dims[0])
+        self.fc2 = nn.Linear(fc_dims[0], num_classes)
+
+        nn.init.orthogonal_(self.fc2.weight.data)
+        nn.init.constant_(self.fc2.bias.data, 0)
+
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+    @staticmethod
+    def add_to_argparse(parser):
+        parser.add_argument("--conv_dims", type=int, nargs='+', default=CONV_DIMS)
+        parser.add_argument("--fc_dims", type=int, nargs='+', default=FC_DIMS)
+        return parser
+
+
 # simple test for the network
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
-    DQN.add_to_argparse(parser)
+    NatureDQN.add_to_argparse(parser)
     data_config = {'input_dims': (3, 64, 64), 'num_classes': 15}
     args = parser.parse_args()
-    nnet = DQN(data_config, args)
+    nnet = ImpalaDQN(data_config, args)
     x = torch.randn(5, 3, 64, 64)
     y = nnet(x)
     print(nnet)

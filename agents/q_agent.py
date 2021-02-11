@@ -1,7 +1,12 @@
 import argparse
+from tqdm import tqdm
+
 import numpy as np
 import torch
-import gym3
+import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
+
+from gym3 import ViewerWrapper
 from gym3.extract_dict_ob import ExtractDictObWrapper
 from procgen import ProcgenGym3Env
 
@@ -31,14 +36,14 @@ EPS_STEPS = 1e6
 GAMMA = 0.99
 
 # eval config
-EVAL_FREQ = 2.5e5
+EVAL_FREQ = 2.5e4
 
 
 class QAgent():
     """
         The agent that performs Q-Learning.
     """
-    def __init__(self, model, args):
+    def __init__(self, model, target_model, args):
         self.env = ProcgenGym3Env(
             num=args.num_envs, 
             env_name=args.env_name, 
@@ -49,13 +54,13 @@ class QAgent():
         )
         self.env = ExtractDictObWrapper(self.env, 'rgb')
 
-        self.model = model
+
         self.memory = ReplayBuffer()
         self.config = args
         self.step = self.config.train_resume
-        # if it's a resume, then load model
-        if self.step != 0:
-            self.load()
+
+        self.model = model
+        self.target = target_model
 
         self.eps_scheduler = LinearSchedule(
             self.config.eps_start, self.config.eps_end, self.config.eps_steps
@@ -63,17 +68,23 @@ class QAgent():
         # for safety reasons
         self.eps_scheduler.step(self.step)
 
-        self.lr_schedule = LinearSchedule(
+        self.lr_scheduler = LinearSchedule(
             self.config.lr_start, self.config.lr_end, self.config.lr_steps
         )
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
-            lr=self.lr_schedule(self.step)
+            lr=self.lr_scheduler.step(self.step)
         )
-        self.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-            self.optimizer,
-            lr_lambda=self.lr_schedule
-        )
+
+        # if it's a resume, then load model
+        if self.step != 0:
+            self.load()
+        self.update_network()
+
+        self.model.train()
+        self.target.eval()
+
+        self.writer = SummaryWriter(log_dir='results/logs/ImpalaDQN')
 
 
     def _get_q_values(self, s):
@@ -106,7 +117,7 @@ class QAgent():
         else:
             return np.random.randint(q_vals.shape[1], size=(1, ))
 
-    def evaluate(self, num_eval=5, render=False):
+    def evaluate(self, num_eval=50, render=False):
         """
             Evaluate the current model.
             Args
@@ -114,7 +125,7 @@ class QAgent():
                 render: whether to render the evaluation
         """
         if render:
-            env = gym3.ViewerWrapper(self.env, info_key='rgb')
+            env = ViewerWrapper(self.env, info_key='rgb')
         else:
             env = self.env
         avg_reward = 0
@@ -122,7 +133,6 @@ class QAgent():
             total_reward = 0
             step = 0
             s = env.observe()[1]
-            print(env.observe()[2])
             while True:
                 a = self.get_action(s, epsilon_greedy=False)
                 env.act(a)
@@ -132,55 +142,116 @@ class QAgent():
                 if done:
                     avg_reward += total_reward / num_eval
                     break
-            print('\tReward:', total_reward, 'Steps:', step)
-        print('Evaluation ... Avg Reward:', avg_reward)
-        return total_reward
+            # print('\tReward:', total_reward, 'Steps:', step)
+        self.writer.add_scalar('Reward/eval', avg_reward, self.step)
+        # print('Evaluation ... Avg Reward:', avg_reward)
+        return avg_reward
 
     def save(self):
-        pass
+        """
+            Save the model.
+        """
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+        }, 'results/weights/checkpoint')
 
     def load(self):
-        pass
+        """
+            Load the model.
+        """
+        checkpoint = torch.load('results/weights/checkpoint')
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.target.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("loaded")
 
     def update_network(self):
-        pass
+        """
+            Update the target network.
+        """
+        self.target.load_state_dict(self.model.state_dict())
     
     def train_step(self):
-        pass
+        """
+            Perform one batch update for the model.
+        """
+        sampled_states, sampled_actions, sampled_rewards, sampled_next_states, sampled_dones = self.memory.sample(self.config.batch_size)
+
+        state_batch = torch.from_numpy(np.array(sampled_states).astype('float32')).squeeze(1).permute(0, 3, 1, 2)
+        next_state_batch = torch.from_numpy(np.array(sampled_next_states).astype('float32')).squeeze(1).permute(0, 3, 1, 2)
+        action_batch = torch.from_numpy(np.array(sampled_actions).astype('int64'))
+        reward_batch = torch.from_numpy(np.array(sampled_rewards).astype('float32'))
+        done_batch = np.array(sampled_dones)
+
+        # the q values for the action taken
+        q_vals = self.model(state_batch)
+        q_vals = q_vals.gather(1, action_batch)
+        # the q values for the next state
+        next_q_vals = self.target(next_state_batch).max(1)[0].detach()
+        next_q_vals[done_batch.reshape(-1)] = 0
+        target_vals = (next_q_vals.unsqueeze(1) * self.config.gamma) + reward_batch
+
+        loss = F.smooth_l1_loss(q_vals, target_vals)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        for param in self.model.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+        self.optimizer.param_groups[0]['lr'] = self.lr_scheduler.step(self.step)
+        return loss
 
     def train(self):
+        """
+            The main training loop for the agent
+        """
+        prog_bar = tqdm(total=self.config.train_steps, initial=self.step)
+        hyperparam_log = tqdm(total=0, position=1, bar_format='{desc}')
+        performance_log = tqdm(total=0, position=2, bar_format='{desc}')
+        eval_log = tqdm(total=0, position=3, bar_format='{desc}')
         since_last_save = 0
         since_last_eval = 0
 
         s = self.env.observe()[1]
+        ep_reward = 0
+        ep_loss = 0
         while self.step < self.config.train_steps:
             a = self.get_action(s)
             self.env.act(a)
             r, sp, d = self.env.observe()
             self.memory.store(s, a, r, sp, d)
-
-
-
+            ep_reward += r[0]
+            s = sp
+            if d:
+                self.writer.add_scalar('Reward/train', ep_reward, self.step)
+                self.writer.add_scalar('Loss/train', ep_loss, self.step)
+                performance_log.set_description_str(f'Ep Reward: {ep_reward}, Ep Loss: {ep_loss:.3f}')
+                ep_reward = 0
+                ep_loss = 0
 
             self.step += 1
             since_last_save += 1
             since_last_eval += 1
 
+            # if start training
             if (self.step - self.config.train_resume) >= self.config.learning_start:
                 if self.step % self.config.learning_freq == 0:
-                    self.train_step()
-                    since_last_learn = 0
+                    ep_loss += self.train_step()
                 if self.step % self.config.update_freq == 0:
                     self.update_network()
                 if since_last_save >= self.config.saving_freq:
                     self.save()
                     since_last_save = 0
                 if since_last_eval >= self.config.eval_freq:
-                    self.evaluate()
+                    eval_reward = self.evaluate()
+                    eval_log.set_description_str(f'Eval Reward: {eval_reward}')
                     since_last_eval = 0
 
-            self.lr_scheduler.step()
-            self.eps_scheduler.step()
+            self.eps_scheduler.step(self.step)
+            prog_bar.update(1)
+            hyperparam_log.set_description_str(f"LR: {self.optimizer.param_groups[0]['lr']:.7f}, Epsilon: {self.eps_scheduler.c:.3f}")
+
 
             
 
@@ -218,4 +289,4 @@ if __name__ == '__main__':
     agent_group = parser.add_argument_group('Agent Args')
     QAgent.add_to_argparse(agent_group)
     args = parser.parse_args()
-    agent = QAgent(None, args)
+    agent = QAgent(None, None, args)
