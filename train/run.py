@@ -2,8 +2,8 @@ import argparse
 import numpy as np
 import torch
 
-from models.dqn import NatureDQN, ImpalaDQN
-from agents.q_agent import QAgent
+from train.models.dqn import NatureDQN, ImpalaDQN
+from train.agents.q_agent import QAgent
 
 np.random.seed(42)
 torch.manual_seed(42)

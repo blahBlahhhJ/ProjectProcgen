@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import ImpalaBlock
+from train.common.model_utils import ImpalaBlock
 
 CONV_DIMS = [16, 32, 32]
 CONV_KERNELS = [7, 5, 3]

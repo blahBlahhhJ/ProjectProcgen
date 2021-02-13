@@ -10,8 +10,8 @@ from gym3 import ViewerWrapper
 from gym3.extract_dict_ob import ExtractDictObWrapper
 from procgen import ProcgenGym3Env
 
-from .utils.schedule import LinearSchedule
-from .utils.memory import ReplayBuffer
+from train.common.schedule import LinearSchedule
+from train.common.memory import ReplayBuffer
 
 # gym config
 ENV_NAME = 'fruitbot'
