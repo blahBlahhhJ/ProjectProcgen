@@ -10,8 +10,10 @@ from gym3 import ViewerWrapper
 from gym3.extract_dict_ob import ExtractDictObWrapper
 from procgen import ProcgenGym3Env
 
-from train.common.schedule import LinearSchedule
-from train.common.memory import ReplayBuffer
+from .dqn import ImpalaDQN
+
+from .schedule import LinearSchedule
+from .memory import ReplayBuffer
 
 # gym config
 ENV_NAME = 'fruitbot'
@@ -43,7 +45,7 @@ class QAgent():
     """
         The agent that performs Q-Learning.
     """
-    def __init__(self, model, target_model, args):
+    def __init__(self, data_config, args):
         self.env = ProcgenGym3Env(
             num=args.num_envs, 
             env_name=args.env_name, 
@@ -59,8 +61,8 @@ class QAgent():
         self.config = args
         self.step = self.config.train_resume
 
-        self.model = model
-        self.target = target_model
+        self.model = ImpalaDQN(data_config, args)
+        self.target = ImpalaDQN(data_config, args)
 
         self.eps_scheduler = LinearSchedule(
             self.config.eps_start, self.config.eps_end, self.config.eps_steps

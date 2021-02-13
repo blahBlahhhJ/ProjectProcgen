@@ -1,9 +1,10 @@
 import argparse
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 
-from train.models.dqn import NatureDQN, ImpalaDQN
-from train.agents.q_agent import QAgent
+from dqn.q_agent import QAgent
+from ppo.ppo_agent import PPOAgent
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -18,11 +19,8 @@ def _setup_parser():
     """
     parser = argparse.ArgumentParser(add_help=True)
 
-    model_group = parser.add_argument_group("Model Args")
-    ImpalaDQN.add_to_argparse(model_group)
-
     agent_group = parser.add_argument_group("Agent Args")
-    QAgent.add_to_argparse(agent_group)
+    PPOAgent.add_to_argparse(agent_group)
 
     return parser
 
@@ -34,11 +32,12 @@ def main():
     args = parser.parse_args()
     data_config = {'input_dims': (3, 64, 64), 'num_classes': 15}
     
-    model = ImpalaDQN(data_config, args)
-    target_model = ImpalaDQN(data_config, args)
-    agent = QAgent(model, target_model, args)
+    agent = PPOAgent(data_config, args)
     # agent.evaluate(render=True)
-    agent.train()
+    states, returns, masks, actions, values, neglogpacs, = agent.gather_trajectory()
+    print(states.shape, returns.shape, masks.shape, actions.shape, values.shape, neglogpacs.shape)
+
+    
 
 
 # the main script
