@@ -160,7 +160,7 @@ class PPOAgent:
         avg_reward = np.mean([i['r'] for i in infos])
         self.writer.add_scalar('Reward/train', avg_reward, self.step)
 
-        s = torch.FloatTensor(self.s).permute(0, 3, 1, 2) / 255.
+        s = torch.FloatTensor(self.s).permute(0, 3, 1, 2)
         _, v = self.model(s.to(self.device))
         # one more estimate for values
         values.append(v.squeeze(1).detach().cpu().numpy())
