@@ -36,6 +36,7 @@ class ImpalaBlock(nn.Module):
     def forward(self, x):
         x = self.pre_conv(x)
         x = self.bn(x)
+        x = F.relu(x)
         x = self.max_pool(x)
         x = self.res_block1(x)
         x = self.res_block2(x)

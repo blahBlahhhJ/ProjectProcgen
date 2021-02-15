@@ -34,9 +34,9 @@ class ImpalaPPO(nn.Module):
         self.actor = nn.Linear(fc_dims[0], num_classes)
         self.critic = nn.Linear(fc_dims[0], 1)
 
-        nn.init.orthogonal_(self.actor.weight.data)
+        nn.init.orthogonal_(self.actor.weight.data, gain=0.01)
         nn.init.constant_(self.actor.bias.data, 0)
-        nn.init.orthogonal_(self.critic.weight.data)
+        nn.init.orthogonal_(self.critic.weight.data, gain=1)
         nn.init.constant_(self.critic.bias.data, 0)
 
     def forward(self, x):
@@ -55,4 +55,3 @@ class ImpalaPPO(nn.Module):
         parser.add_argument("--conv_dims", type=int, nargs='+', default=CONV_DIMS)
         parser.add_argument("--fc_dims", type=int, nargs='+', default=FC_DIMS)
         return parser
-        
