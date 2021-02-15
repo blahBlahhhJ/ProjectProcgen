@@ -137,9 +137,10 @@ class PPOAgent:
         for _ in range(self.config.update_freq):
             traj_bar.update()
             s = torch.FloatTensor(self.s).permute(0, 3, 1, 2)
-            a_prob, v = self.model(s.to(self.device))
-            a = self.get_action(a_prob).cpu().numpy()
-            n = -torch.log(a_prob)
+            with torch.no_grad():
+                a_prob, v = self.model(s.to(self.device))
+                a = self.get_action(a_prob).cpu().numpy()
+                n = -torch.log(a_prob)
 
             states.append(self.s.copy())
             actions.append(a)
@@ -187,7 +188,8 @@ class PPOAgent:
             nonterminal = 1.0 - dones[t]
 
             delta = rewards[t] + self.config.gamma * next_v * nonterminal - values[t]
-            advs[t] = g = delta + self.config.gamma * self.config.lam * nonterminal * g
+            g = delta + self.config.gamma * self.config.lam * nonterminal * g
+            advs[t] = g
         returns = advs + values[:-1]
         return returns
 
@@ -211,7 +213,7 @@ class PPOAgent:
 
         # critic loss
         critic_loss_unclipped = torch.square(v - returns)
-        critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range))
+        critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range) - returns)
         critic_loss = self.config.cl * 0.5 * torch.max(critic_loss_clipped, critic_loss_unclipped).mean()
 
         # entropy bonus for exploration
