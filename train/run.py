@@ -33,9 +33,7 @@ def main():
     data_config = {'input_dims': (3, 64, 64), 'num_classes': 15}
     
     agent = PPOAgent(data_config, args)
-    # agent.evaluate(render=True)
-    states, returns, masks, actions, values, neglogpacs, = agent.gather_trajectory()
-    print(states.shape, returns.shape, masks.shape, actions.shape, values.shape, neglogpacs.shape)
+    agent.train()
 
     
 

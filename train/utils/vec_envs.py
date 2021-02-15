@@ -251,7 +251,6 @@ class VecMonitor(VecEnvWrapper):
         self.eprets = None
         self.eplens = None
         self.epcount = 0
-        self.tstart = time.time()
         
         self.results_writer = None
         self.info_keywords = info_keywords
@@ -277,7 +276,7 @@ class VecMonitor(VecEnvWrapper):
                 info = infos[i].copy()
                 ret = self.eprets[i]
                 eplen = self.eplens[i]
-                epinfo = {'r': ret, 'l': eplen, 't': round(time.time() - self.tstart, 6)}
+                epinfo = {'r': ret, 'l': eplen}
                 for k in self.info_keywords:
                     epinfo[k] = info[k]
                 info['episode'] = epinfo
