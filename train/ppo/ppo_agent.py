@@ -60,16 +60,18 @@ class PPOAgent:
         self.step = self.config.train_resume
         assert self.step % (args.num_envs * args.update_freq) == 0
 
-        self.model = ImpalaPPO(data_config, args)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start)
-
-        if self.step != 0:
-            self.load()
+        
 
         self.writer = torch.utils.tensorboard.SummaryWriter('results/logs/PPO/' + str(self.config.num_levels) + 'lvl')
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print('Using', self.device)
+        
+        self.model = ImpalaPPO(data_config, args).to(self.device)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start)
+
+        if self.step != 0:
+            self.load()
 
     def save(self):
         """
@@ -100,11 +102,11 @@ class PPOAgent:
             return categorical(probs).sample()
 
     def _to_torch(self, states, returns, actions, values, neglogprobs):
-        states = torch.FloatTensor(states).permute(0, 3, 1, 2)  # (B, C, H, W)
-        returns = torch.FloatTensor(returns).unsqueeze(1)    # (B, )
-        actions = torch.LongTensor(actions).unsqueeze(1) # (B, )
-        values = torch.FloatTensor(values).unsqueeze(1)
-        neglogprobs = torch.FloatTensor(neglogprobs)
+        states = torch.FloatTensor(states).permute(0, 3, 1, 2).to(self.device)  # (B, C, H, W)
+        returns = torch.FloatTensor(returns).unsqueeze(1).to(self.device)    # (B, )
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device) # (B, )
+        values = torch.FloatTensor(values).unsqueeze(1).to(self.device)
+        neglogprobs = torch.FloatTensor(neglogprobs).to(self.device)
         return states, returns, actions, values, neglogprobs
     
     def gather_trajectory(self, traj_bar):
@@ -135,14 +137,14 @@ class PPOAgent:
         for _ in range(self.config.update_freq):
             traj_bar.update()
             s = torch.FloatTensor(self.s).permute(0, 3, 1, 2)
-            a_prob, v = self.model(s)
-            a = self.get_action(a_prob).numpy()
+            a_prob, v = self.model(s.to(self.device))
+            a = self.get_action(a_prob).cpu().numpy()
             n = -torch.log(a_prob)
 
             states.append(self.s.copy())
             actions.append(a)
-            values.append(v.squeeze(1).detach().numpy())
-            neglogprobs.append(n.detach().numpy())
+            values.append(v.squeeze(1).detach().cpu().numpy())
+            neglogprobs.append(n.detach().cpu().numpy())
 
             self.s, r, d, info = self.env.step(a)
             self.s = self.s / 255
@@ -158,9 +160,9 @@ class PPOAgent:
         self.writer.add_scalar('Reward/train', avg_reward, self.step)
 
         s = torch.FloatTensor(self.s).permute(0, 3, 1, 2) / 255.
-        _, v = self.model(s)
+        _, v = self.model(s.to(self.device))
         # one more estimate for values
-        values.append(v.squeeze(1).detach().numpy())
+        values.append(v.squeeze(1).detach().cpu().numpy())
 
         states = np.array(states, dtype=self.s.dtype)
         rewards = np.array(rewards, dtype=np.float32)
@@ -169,7 +171,7 @@ class PPOAgent:
         neglogprobs = np.array(neglogprobs, dtype=np.float32)
         dones = np.array(dones, dtype=np.bool)
 
-        returns = self.compute_gae(rewards, dones, values, v)
+        returns = self.compute_gae(rewards, dones, values)
 
         return self._to_torch(*map(sf01, (states, returns, actions, values, neglogprobs)))
 
@@ -186,7 +188,7 @@ class PPOAgent:
 
             delta = rewards[t] + self.config.gamma * next_v * nonterminal - values[t]
             advs[t] = g = delta + self.config.gamma * self.config.lam * nonterminal * g
-        returns = advs + values
+        returns = advs + values[:-1]
         return returns
 
     def train_step(self, states, returns, actions, values, neglogprobs):
@@ -226,6 +228,7 @@ class PPOAgent:
         return total_loss
 
     def evaluate(self, num_eval=50, record=False):
+        self.model.eval()
         eval_env = ProcgenEnv(
             num_envs=1, 
             env_name=self.config.env_name, 
@@ -243,8 +246,8 @@ class PPOAgent:
         s = eval_env.reset() / 255
         while len(infos) < num_eval:
             s = torch.FloatTensor(s).permute(0, 3, 1, 2)
-            a_prob, _ = self.model(s)
-            a = self.get_action(a_prob, deterministic=True).numpy()
+            a_prob, _ = self.model(s.to(self.device))
+            a = self.get_action(a_prob, deterministic=True).cpu().numpy()
             s, r, done, info = eval_env.step(a)
             s = s / 255
 
@@ -278,6 +281,7 @@ class PPOAgent:
             idxs = np.arange(train_size)
             avg_loss = 0
             train_bar.reset()
+            self.model.train()
             for __ in range(self.config.num_epochs):
                 np.random.shuffle(idxs)
                 ep_loss = []
@@ -288,7 +292,7 @@ class PPOAgent:
                     batch_idxs = idxs[start:end]
                     # get one batch of data
                     slices = (arr[batch_idxs] for arr in (states, returns, actions, values, neglogprobs))
-                    ep_loss.append(self.train_step(*slices).detach().numpy())
+                    ep_loss.append(self.train_step(*slices).detach().cpu().numpy())
                     performance_log.set_description_str(f'Average Loss: {ep_loss[-1]:.3f}')
                 avg_loss += np.mean(ep_loss) / self.config.num_epochs
                 train_bar.update(1)
