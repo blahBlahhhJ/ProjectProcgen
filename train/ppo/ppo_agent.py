@@ -173,7 +173,7 @@ class PPOAgent:
         dones = np.array(dones, dtype=np.bool)
 
         returns = self.compute_gae(rewards, dones, values)
-
+        values = values[:-1]
         return self._to_torch(*map(sf01, (states, returns, actions, values, neglogprobs)))
 
     def compute_gae(self, rewards, dones, values):
@@ -201,7 +201,13 @@ class PPOAgent:
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
         a_prob, v = self.model(states)
-        new_neglogprobs = -torch.log(a_prob).gather(1, actions)
+        new_neglogprobs = -torch.log(a_prob)
+
+        # entropy bonus for exploration
+        entropy = new_neglogprobs * a_prob
+        entropy = self.config.ent * entropy.sum(1).mean()
+
+        new_neglogprobs = new_neglogprobs.gather(1, actions)
         old_neglogprobs = neglogprobs.gather(1, actions)
         # pi_new / pi_old
         ratio = torch.exp(new_neglogprobs - old_neglogprobs).squeeze(1)
@@ -215,10 +221,6 @@ class PPOAgent:
         critic_loss_unclipped = torch.square(v - returns)
         critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range) - returns)
         critic_loss = self.config.cl * 0.5 * torch.max(critic_loss_clipped, critic_loss_unclipped).mean()
-
-        # entropy bonus for exploration
-        entropy = new_neglogprobs * a_prob
-        entropy = self.config.ent * entropy.sum(1).mean()
 
         # do the update
         total_loss = actor_loss + critic_loss - entropy
@@ -279,19 +281,17 @@ class PPOAgent:
         for i in range(int(start_loop)+1, int(num_loops)+1):
             prog_bar.update(1)
             traj_bar.reset()
-            states, returns, actions, values, neglogprobs, = self.gather_trajectory(traj_bar)
-            idxs = np.arange(train_size)
+            states, returns, actions, values, neglogprobs = self.gather_trajectory(traj_bar)
             avg_loss = 0
             train_bar.reset()
             self.model.train()
             for __ in range(self.config.num_epochs):
-                np.random.shuffle(idxs)
+                idxs = torch.randperm(train_size);
                 ep_loss = []
                 sub_train_bar.reset()
                 for start in range(0, train_size, batch_size):
                     sub_train_bar.update(1)
-                    end = start + batch_size
-                    batch_idxs = idxs[start:end]
+                    batch_idxs = idxs[start:start+batch_size]
                     # get one batch of data
                     slices = (arr[batch_idxs] for arr in (states, returns, actions, values, neglogprobs))
                     ep_loss.append(self.train_step(*slices).detach().cpu().numpy())
