@@ -54,13 +54,11 @@ class PPOAgent:
         self.env = VecMonitor(self.env)
         self.env = VecNormalize(self.env, ob=False)
 
-        self.s = self.env.reset() / 255
+        self.s = self.env.reset()
 
         self.config = args
         self.step = self.config.train_resume
         assert self.step % (args.num_envs * args.update_freq) == 0
-
-        
 
         self.writer = torch.utils.tensorboard.SummaryWriter('results/logs/PPO/' + str(self.config.num_levels) + 'lvl')
 
@@ -92,22 +90,33 @@ class PPOAgent:
         print("loaded")
 
 
-    def get_action(self, probs, deterministic=False):
-        """
-            Return the action chosen by greedy or sampling.
-        """
+    def get_action(self, a_logprob, deterministic=False):
+        p = a_logprob.exp()
         if deterministic:
-            return torch.argmax(probs, dim=-1)
+            return torch.argmax(p, dim=-1)
         else:
-            return categorical(probs).sample()
+            return categorical(p).sample()
 
-    def _to_torch(self, states, returns, actions, values, neglogprobs):
-        states = torch.FloatTensor(states).permute(0, 3, 1, 2).to(self.device)  # (B, C, H, W)
-        returns = torch.FloatTensor(returns).unsqueeze(1).to(self.device)    # (B, )
-        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device) # (B, )
-        values = torch.FloatTensor(values).unsqueeze(1).to(self.device)
-        neglogprobs = torch.FloatTensor(neglogprobs).to(self.device)
-        return states, returns, actions, values, neglogprobs
+    def _to_torch(self, states, returns, actions, values, logprobs):
+        """
+            Turn numpy to torch, send to gpu.
+            Normalize for states, unsqueeze axis for returns actions values.
+        """
+        states = states / 255
+        states = torch.FloatTensor(states).permute(0, 3, 1, 2).to(self.device) # (B, C, H, W)
+        returns = torch.FloatTensor(returns).unsqueeze(1).to(self.device) # (B, 1)
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device) # (B, 1)
+        values = torch.FloatTensor(values).unsqueeze(1).to(self.device) # (B, 1)
+        logprobs = torch.FloatTensor(logprobs).to(self.device) # (B, A)
+        return states, returns, actions, values, logprobs
+
+    def _frame_to_torch(self, s):
+        """
+            Normalize, switch axis, send to gpu.
+        """
+        s = s / 255
+        s = torch.FloatTensor(s).permute(0, 3, 1, 2)
+        return s.to(self.device)
     
     def gather_trajectory(self, traj_bar):
         """
@@ -119,62 +128,65 @@ class PPOAgent:
             A = action space dimension
             Returns
             -------
-            states: (B, H, W, C)
+            states: (B, C, H, W)
                 the normalized frames of the game
-            returns: (B, )
+            returns: (B, 1)
                 the generalized advantage estimation
-            actions: (B, )
+            actions: (B, 1)
                 the actions for each frame
-            values: (B, )
+            values: (B, 1)
                 the estimated values for each frame
-            neglogprobs: (B, A)
-                the negative log probability of each action
+            logprobs: (B, A)
+                the log probability of each action
         """
-        self.model.eval()
-        states, rewards, actions, values, dones, neglogprobs = [], [], [], [], [], []
-        infos = []
+        with torch.no_grad():
+            self.model.eval()
+            states, rewards, actions, values, dones, logprobs = [], [], [], [], [], []
+            infos = []
 
-        for _ in range(self.config.update_freq):
-            traj_bar.update()
-            s = torch.FloatTensor(self.s).permute(0, 3, 1, 2)
-            with torch.no_grad():
-                a_prob, v = self.model(s.to(self.device))
-                a = self.get_action(a_prob).cpu().numpy()
-                n = -torch.log(a_prob)
+            for _ in range(self.config.update_freq):
+                traj_bar.update()
 
-            states.append(self.s.copy())
-            actions.append(a)
-            values.append(v.squeeze(1).detach().cpu().numpy())
-            neglogprobs.append(n.detach().cpu().numpy())
+                states.append(self.s)    # type numpy, un-normalized to store
+                # type torch, normalized to predict
+                a_logprob, v = self.model(self._frame_to_torch(self.s))
+                a = self.get_action(a_logprob).cpu().numpy()
+                v = v.squeeze(-1).detach().cpu().numpy()
 
-            self.s, r, d, info = self.env.step(a)
-            self.s = self.s / 255
+                actions.append(a)
+                values.append(v)
+                logprobs.append(a_logprob.detach().cpu().numpy())
 
-            rewards.append(r)
-            dones.append(d)
+                self.s, r, d, info = self.env.step(a)
 
-            for i in info:
-                episode_info = i.get('episode')
-                if episode_info:
-                    infos.append(episode_info)
-        avg_reward = np.mean([i['r'] for i in infos])
-        self.writer.add_scalar('Reward/train', avg_reward, self.step)
+                rewards.append(r)
+                dones.append(d)
 
-        s = torch.FloatTensor(self.s).permute(0, 3, 1, 2)
-        _, v = self.model(s.to(self.device))
-        # one more estimate for values
-        values.append(v.squeeze(1).detach().cpu().numpy())
+                for i in info:
+                    episode_info = i.get('episode')
+                    if episode_info:
+                        infos.append(episode_info)
 
-        states = np.array(states, dtype=self.s.dtype)
-        rewards = np.array(rewards, dtype=np.float32)
-        actions = np.array(actions)
-        values = np.array(values, dtype=np.float32)
-        neglogprobs = np.array(neglogprobs, dtype=np.float32)
-        dones = np.array(dones, dtype=np.bool)
+            # put the value for the last "next state"
+            _, last_v = self.model(self._frame_to_torch(self.s))
+            values.append(last_v.squeeze(-1).detach().cpu().numpy())
+                        
+            states = np.asarray(states, dtype=self.s.dtype)
+            actions = np.asarray(actions)
+            rewards = np.asarray(rewards, dtype=np.float32)
+            dones = np.asarray(dones, dtype=np.bool)
+            values = np.asarray(values, dtype=np.float32)
+            logprobs = np.asarray(logprobs, dtype=np.float32)
 
-        returns = self.compute_gae(rewards, dones, values)
-        values = values[:-1]
-        return self._to_torch(*map(sf01, (states, returns, actions, values, neglogprobs)))
+            returns = self.compute_gae(rewards, dones, values)
+
+            # dump the "extra" last value
+            values = values[:-1]
+
+            avg_reward = np.mean([i['r'] for i in infos])
+            self.writer.add_scalar('Reward/train', avg_reward, self.step)
+
+        return self._to_torch(*map(sf01, (states, returns, actions, values, logprobs)))
 
     def compute_gae(self, rewards, dones, values):
         """
@@ -182,45 +194,58 @@ class PPOAgent:
         """
         returns = np.zeros_like(rewards)
         advs = np.zeros_like(rewards)
-        g = 0
+        lastgaelam = 0
         for t in reversed(range(self.config.update_freq)):
             next_v = values[t + 1]
             nonterminal = 1.0 - dones[t]
 
             delta = rewards[t] + self.config.gamma * next_v * nonterminal - values[t]
-            g = delta + self.config.gamma * self.config.lam * nonterminal * g
-            advs[t] = g
+            lastgaelam = delta + self.config.gamma * self.config.lam * nonterminal * lastgaelam
+            advs[t] = lastgaelam
         returns = advs + values[:-1]
         return returns
 
-    def train_step(self, states, returns, actions, values, neglogprobs):
+    def train_step(self, states, returns, actions, values, logprobs):
         """
             Update the model for one batch of training data.
+            Args:
+            -------
+            states: (B, C, H, W)
+                the normalized frames of the game
+            returns: (B, 1)
+                the generalized advantage estimation
+            actions: (B, 1)
+                the actions for each frame
+            values: (B, 1)
+                the estimated values for each frame
+            logprobs: (B, A)
+                the log probability of each action
         """
+        # normalize advantages
         with torch.no_grad():
-            advs = returns - values
+            advs = returns - values     # (B, 1)
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-        a_prob, v = self.model(states)
-        new_neglogprobs = -torch.log(a_prob)
 
-        # entropy bonus for exploration
-        entropy = new_neglogprobs * a_prob
-        entropy = self.config.ent * entropy.sum(1).mean()
+        new_logprobs, v = self.model(states)    # (B, A), (B, 1)
 
-        new_neglogprobs = new_neglogprobs.gather(1, actions)
-        old_neglogprobs = neglogprobs.gather(1, actions)
+        # entropy bonus for exploration (entropy=-∑p*logp)
+        entropy = -new_logprobs.exp() * new_logprobs        # (B, A)
+        entropy = self.config.ent * entropy.sum(1).mean()   # scalar
+
+        new_logprobs = new_logprobs.gather(1, actions)  # (B, 1)
+        old_logprobs = logprobs.gather(1, actions)      # (B, 1)
         # pi_new / pi_old
-        ratio = torch.exp(new_neglogprobs - old_neglogprobs).squeeze(1)
+        ratio = torch.exp(new_logprobs - old_logprobs)  # (B, 1)
 
         # actor loss
-        actor_loss_unclipped = -advs * ratio
-        actor_loss_clipped = -advs * torch.clamp(ratio, 1 - self.config.clip_range, 1 + self.config.clip_range)
-        actor_loss = torch.max(actor_loss_clipped, actor_loss_unclipped).mean()
+        actor_loss_unclipped = -advs * ratio            # (B, 1)
+        actor_loss_clipped = -advs * torch.clamp(ratio, 1 - self.config.clip_range, 1 + self.config.clip_range)                         # (B, 1)
+        actor_loss = torch.max(actor_loss_clipped, actor_loss_unclipped).squeeze(1).mean()  # scalar
 
         # critic loss
-        critic_loss_unclipped = torch.square(v - returns)
-        critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range) - returns)
-        critic_loss = self.config.cl * 0.5 * torch.max(critic_loss_clipped, critic_loss_unclipped).mean()
+        critic_loss_unclipped = torch.square(v - returns)   # (B, 1)
+        critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range) - returns)      # (B, 1)
+        critic_loss = self.config.cl * 0.5 * torch.max(critic_loss_clipped, critic_loss_unclipped).squeeze(1).mean()            # scalar
 
         # do the update
         total_loss = actor_loss + critic_loss - entropy
@@ -262,15 +287,17 @@ class PPOAgent:
         avg_reward = np.mean([i['r'] for i in infos])
         return avg_reward
 
-
-    
     def train(self):
         # number of samples per train_step
         train_size = self.config.num_envs * self.config.update_freq
         batch_size = train_size // self.config.num_batches
-        # number of times to call train_step
+        idxs = np.arange(train_size)    # for splitting batches
+
+        # number of times to call gather_trajectory & train_step
         num_loops = self.config.train_steps // train_size
         start_loop = self.step // train_size
+
+        # tqdm progress bars & logs
         prog_bar = tqdm(total=int(num_loops), position=0, desc='Train Step')
         traj_bar = tqdm(total=self.config.update_freq, position=1, desc='Gathering Trajectory')
         train_bar = tqdm(total=self.config.num_epochs, position=2, desc='Updating Model')
@@ -278,37 +305,39 @@ class PPOAgent:
         performance_log = tqdm(total=0, position=4, bar_format='{desc}')
         eval_log = tqdm(total=0, position=5, bar_format='{desc}')
 
+        # the big training loop
         for i in range(int(start_loop)+1, int(num_loops)+1):
             prog_bar.update(1)
             traj_bar.reset()
-            states, returns, actions, values, neglogprobs = self.gather_trajectory(traj_bar)
-            avg_loss = 0
+            # get data
+            states, returns, actions, values, logprobs = self.gather_trajectory(traj_bar)
+            losses = []
             train_bar.reset()
             self.model.train()
+            # the epoch loop
             for __ in range(self.config.num_epochs):
-                idxs = torch.randperm(train_size);
-                ep_loss = []
+                # randomize indices for picking batches
+                np.random.shuffle(idxs)
                 sub_train_bar.reset()
-                for start in range(0, train_size, batch_size):
+                # the batch loop
+                for b in range(self.config.num_batches):
                     sub_train_bar.update(1)
-                    batch_idxs = idxs[start:start+batch_size]
+                    batch_idxs = idxs[b*batch_size:(b+1)*batch_size]
                     # get one batch of data
-                    slices = (arr[batch_idxs] for arr in (states, returns, actions, values, neglogprobs))
-                    ep_loss.append(self.train_step(*slices).detach().cpu().numpy())
-                    performance_log.set_description_str(f'Average Loss: {ep_loss[-1]:.3f}')
-                avg_loss += np.mean(ep_loss) / self.config.num_epochs
+                    slices = (arr[batch_idxs] for arr in (states, returns, actions, values, logprobs))
+                    losses.append(self.train_step(*slices).item())
+                    performance_log.set_description_str(f'Loss: {np.mean(losses):.3f}')
                 train_bar.update(1)
-            self.writer.add_scalar('Loss/train', avg_loss, i)
+            self.writer.add_scalar('Loss/train', np.mean(losses), i)
 
             self.step += train_size
+
             if i % self.config.eval_freq == 0:
                 eval_reward = self.evaluate()
                 self.writer.add_scalar('Reward/eval', eval_reward, self.step)
                 eval_log.set_description_str(f'Eval Reward: {eval_reward}')
             if i % self.config.saving_freq == 0:
                 self.save()
-            
-
 
     @staticmethod
     def add_to_argparse(parser):
@@ -330,7 +359,6 @@ class PPOAgent:
         parser.add_argument('--gamma', type=float, default=GAMMA)
         parser.add_argument('--lam', type=float, default=LAMBDA)
         parser.add_argument('--eval_freq', type=type, default=EVAL_FREQ)
-
 
         model_group = parser.add_argument_group("Model Args")
         ImpalaPPO.add_to_argparse(model_group)

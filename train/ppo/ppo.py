@@ -44,9 +44,11 @@ class ImpalaPPO(nn.Module):
         x = self.block2(x)
         x = self.block3(x)
         x = torch.flatten(x, 1)
-        x = F.relu(self.fc1(x))
+        x = F.relu(x)
+        x = self.fc1(x)
+        x = F.relu(x)
 
-        a = F.softmax(self.actor(x), dim=-1)
+        a = F.log_softmax(self.actor(x), dim=-1)
         c = self.critic(x)
         return a, c
 
