@@ -12,6 +12,24 @@ CONV_DIMS = [16, 32, 32]
 FC_DIMS = [256]
 
 class ImpalaPPO(nn.Module):
+    """
+        The model for PPO.
+        input
+          |
+        impalablock
+          |
+        impalablock
+          |
+        impalablock
+          |
+        flatten
+          |
+        dense ___
+          |      |
+        dense   dense
+          |      |
+        actor   critic
+    """
     def __init__(self, data_config, args):
         super().__init__()
         C, H, W = data_config['input_dims']
@@ -44,7 +62,7 @@ class ImpalaPPO(nn.Module):
         x = self.block2(x)
         x = self.block3(x)
         x = torch.flatten(x, 1)
-        x = F.relu(x)
+        # x = F.relu(x)
         x = self.fc1(x)
         x = F.relu(x)
 
