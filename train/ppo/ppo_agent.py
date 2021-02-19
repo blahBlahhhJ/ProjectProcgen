@@ -8,15 +8,7 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from procgen import ProcgenEnv
-
-from .ppo import ImpalaPPO
 from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor
-
-# gym config
-ENV_NAME = 'starpilot'
-NUM_ENVS = 64
-NUM_LEVELS = 50
-START_LEVEL = 500
 
 # training config
 TRAIN_STEPS = 5e6
@@ -41,19 +33,8 @@ def sf01(x):
     return x.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
 
 class PPOAgent:
-    def __init__(self, data_config, args):
-        self.env = ProcgenEnv(
-            num_envs=args.num_envs, 
-            env_name=args.env_name, 
-            num_levels=args.num_levels, 
-            start_level=args.start_level, 
-            distribution_mode='easy', 
-            render_mode='rgb_array'
-        )
-        self.env = VecExtractDictObs(self.env, 'rgb')
-        self.env = VecMonitor(self.env)
-        self.env = VecNormalize(self.env, ob=False)
-
+    def __init__(self, env, model, data_config, args):
+        self.env = env
         self.s = self.env.reset()
 
         self.config = args
@@ -64,8 +45,7 @@ class PPOAgent:
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print('Using', self.device)
-        
-        self.model = ImpalaPPO(data_config, args).to(self.device)
+        self.model = model.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start)
 
         if self.step != 0:
@@ -78,6 +58,8 @@ class PPOAgent:
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'env_mean': self.env.ret_rms.mean,
+            'env_var': self.env.ret_rms.var
         }, 'results/weights/ppo/checkpoint-' + str(self.step))
 
     def load(self):
@@ -87,10 +69,22 @@ class PPOAgent:
         checkpoint = torch.load('results/weights/ppo/checkpoint-' + str(self.step))
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.env.ret_rms.mean = checkpoint['env_mean']
+        self.env.ret_rms.var = checkpoint['env_var']
         print("loaded")
 
 
     def get_action(self, a_logprob, deterministic=False):
+        """
+            Get the action according to the predicted probabilities.
+            Args:
+            ------
+            a_logprob: torchFloatTensor
+                the predicted action probabilities
+            deterministic: boolean
+                whether to choose max prob index or do random sampling
+
+        """
         p = a_logprob.exp()
         if deterministic:
             return torch.argmax(p, dim=-1)
@@ -128,15 +122,15 @@ class PPOAgent:
             A = action space dimension
             Returns
             -------
-            states: (B, C, H, W)
+            states: torch.FloatTensor (B, C, H, W)
                 the normalized frames of the game
-            returns: (B, 1)
+            returns: torch.FloatTensor (B, 1)
                 the generalized advantage estimation
-            actions: (B, 1)
+            actions: torch.LongTensor(B, 1)
                 the actions for each frame
-            values: (B, 1)
+            values: torch.FloatTensor(B, 1)
                 the estimated values for each frame
-            logprobs: (B, A)
+            logprobs: torch.FloatTensor(B, A)
                 the log probability of each action
         """
         with torch.no_grad():
@@ -191,6 +185,17 @@ class PPOAgent:
     def compute_gae(self, rewards, dones, values):
         """
             Compute the generalized advantage estimation.
+            Args:
+            ------
+            rewards: np.ndarray (update_freq, num_envs)
+                rewards from trajectory. 
+            dones: np.ndarray (update_freq, num_envs)
+                done masks from trajectory. 
+            values: np.ndarray (update_freq+1, num_envs)
+                estimated values from trajectory. 
+            Returns
+            -------
+            np.ndarray of shape (update_freq, num_envs)
         """
         returns = np.zeros_like(rewards)
         advs = np.zeros_like(rewards)
@@ -257,6 +262,9 @@ class PPOAgent:
         return total_loss
 
     def evaluate(self, num_eval=50, record=False):
+        """
+            Evaluate the model on unseen levels.
+        """
         self.model.eval()
         eval_env = ProcgenEnv(
             num_envs=1, 
@@ -338,14 +346,10 @@ class PPOAgent:
                 eval_log.set_description_str(f'Eval Reward: {eval_reward}')
             if i % self.config.saving_freq == 0:
                 self.save()
+        self.save()
 
     @staticmethod
     def add_to_argparse(parser):
-        parser.add_argument('--env_name', type=str, default=ENV_NAME)
-        parser.add_argument('--num_envs', type=int, default=NUM_ENVS)
-        parser.add_argument('--num_levels', type=int, default=NUM_LEVELS)
-        parser.add_argument('--start_level', type=int, default=START_LEVEL)
-
         parser.add_argument('--train_steps', type=int, default=TRAIN_STEPS)
         parser.add_argument('--train_resume', type=int, default=TRAIN_RESUME)
         parser.add_argument('--update_freq', type=int, default=UPDATE_FREQ)
@@ -359,9 +363,6 @@ class PPOAgent:
         parser.add_argument('--gamma', type=float, default=GAMMA)
         parser.add_argument('--lam', type=float, default=LAMBDA)
         parser.add_argument('--eval_freq', type=type, default=EVAL_FREQ)
-
-        model_group = parser.add_argument_group("Model Args")
-        ImpalaPPO.add_to_argparse(model_group)
 
         return parser
 
