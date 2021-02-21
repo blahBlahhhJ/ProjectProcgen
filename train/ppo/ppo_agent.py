@@ -245,12 +245,12 @@ class PPOAgent:
         # actor loss
         actor_loss_unclipped = -advs * ratio            # (B, 1)
         actor_loss_clipped = -advs * torch.clamp(ratio, 1 - self.config.clip_range, 1 + self.config.clip_range)                         # (B, 1)
-        actor_loss = torch.max(actor_loss_clipped, actor_loss_unclipped).squeeze(1).mean()  # scalar
+        actor_loss = torch.maximum(actor_loss_clipped, actor_loss_unclipped).squeeze(1).mean()  # scalar
 
         # critic loss
         critic_loss_unclipped = torch.square(v - returns)   # (B, 1)
         critic_loss_clipped = torch.square(values + torch.clamp(v - values, -self.config.clip_range, self.config.clip_range) - returns)      # (B, 1)
-        critic_loss = self.config.cl * 0.5 * torch.max(critic_loss_clipped, critic_loss_unclipped).squeeze(1).mean()            # scalar
+        critic_loss = self.config.cl * 0.5 * torch.maximum(critic_loss_clipped, critic_loss_unclipped).squeeze(1).mean()            # scalar
 
         # do the update
         total_loss = actor_loss + critic_loss - entropy

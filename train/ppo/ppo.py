@@ -62,7 +62,6 @@ class ImpalaPPO(nn.Module):
         x = self.block2(x)
         x = self.block3(x)
         x = torch.flatten(x, 1)
-        # x = F.relu(x)
         x = self.fc1(x)
         x = F.relu(x)
 

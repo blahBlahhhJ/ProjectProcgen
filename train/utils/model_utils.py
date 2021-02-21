@@ -27,7 +27,6 @@ class ResBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(n_channels)
 
     def forward(self, x):
-        # out = F.relu(x)
         out = self.conv1(x)
         out = self.bn1(out)
         out = F.relu(out)
