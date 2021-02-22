@@ -6,6 +6,7 @@ dependencies:
   - tqdm
   - pytorch
   - torchvision
+  - tensorboard
   - numpy
   - pip
   - pip:
