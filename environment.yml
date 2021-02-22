@@ -1,15 +1,14 @@
-name: procgen
+name: procgennnn
 channels:
-  - conda-forge
+  - pytorch
+  - defaults
 dependencies:
   - python=3.8.5
+  - numpy
   - tqdm
   - pytorch
   - torchvision
   - tensorboard
-  - numpy
   - pip
   - pip:
-    - gym==0.18.0
-    - gym3==0.3.3
-    - procgen==0.10.4
+    - procgen
