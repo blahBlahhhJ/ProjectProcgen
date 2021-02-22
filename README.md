@@ -5,7 +5,7 @@ This project allows quick and easy experiment on [OpenAI's Procgen Benchmark](ht
 Unlike [OpenAI's baseline](https://github.com/openai/baselines), this project is implemented using PyTorch.
 
 Currently supported methods:
-- Proximity Policy Optimization (PPO)
+- Proximal Policy Optimization (PPO)
 - Deep Q Learning [probably won't work]
 
 ## Getting started

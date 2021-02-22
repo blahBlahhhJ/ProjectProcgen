@@ -1,5 +1,5 @@
 """
-    All the networks for Proximity Policy Optimization
+    All the networks for Proximal Policy Optimization
 """
 import argparse
 import torch
