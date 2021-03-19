@@ -180,7 +180,7 @@ class PPOAgent:
             avg_reward = np.mean([i['r'] for i in infos])
             self.writer.add_scalar('Reward/train', avg_reward, self.step)
 
-        return self._to_torch(*map(sf01, (states, returns, actions, values, logprobs)))
+        return map(sf01, (states, returns, actions, values, logprobs))
 
     def compute_gae(self, rewards, dones, values):
         """
@@ -226,6 +226,7 @@ class PPOAgent:
             logprobs: (B, A)
                 the log probability of each action
         """
+        states, returns, actions, values, logprobs = self._to_torch(states, returns, actions, values, logprobs)
         # normalize advantages
         with torch.no_grad():
             advs = returns - values     # (B, 1)
