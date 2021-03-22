@@ -20,7 +20,16 @@ $ conda activate procgen
 $ cd train
 $ python run.py
 ```
+### Visualize Performance
+```shell
+$ cd train
+$ python run.py --eval_model <path-to-your-model>
+```
+
 ## Optional Arguments:
+| Argument | Default | Description |
+| -- | --- | --- |
+| `--eval_model` | None | The path of trained model (visualizing performance) |
 ### Environment Arguments
 | Argument | Default | Description |
 | -- | --- | --- |
