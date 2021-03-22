@@ -28,6 +28,7 @@ def _setup_parser():
             argparse.ArgumentParser
     """
     parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument('--eval_model', type=str, default=None)
 
     env_group = parser.add_argument_group("Env Args")
     env_group.add_argument('--env_name', type=str, default=ENV_NAME)
@@ -65,7 +66,11 @@ def main():
     model = ImpalaPPO(data_config, args)
     
     agent = PPOAgent(env, model, data_config, args)
-    agent.train()
+    if args.eval_model:
+        agent.load(args.eval_model)
+        agent.test(num_eval=5)
+    else:
+        agent.train()
 
 
 # the main script

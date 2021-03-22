@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
+import gym
 from procgen import ProcgenEnv
 from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor
 
@@ -62,12 +63,16 @@ class PPOAgent:
             'env_var': self.env.ret_rms.var
         }, 'results/weights/ppo/checkpoint-' + str(self.step))
 
-    def load(self):
+    def load(self, ckpt_path=None):
         """
             Load the model.
         """
-        checkpoint = torch.load('results/weights/ppo/checkpoint-' + str(self.step))
+        if ckpt_path:
+            checkpoint = torch.load(ckpt_path, map_location={'cuda:0': 'cpu'})
+        else:
+            checkpoint = torch.load('results/weights/ppo/checkpoint-' + str(self.step), map_location={'cuda:0': 'cpu'})
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.to(self.device)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.env.ret_rms.mean = checkpoint['env_mean']
         self.env.ret_rms.var = checkpoint['env_var']
@@ -261,6 +266,25 @@ class PPOAgent:
         self.optimizer.step()
 
         return total_loss
+
+    def test(self, num_eval=5):
+        """
+            Test the model on unseen levels (with rendering).
+        """
+        test_env = gym.make('procgen:procgen-'+self.config.env_name+'-v0', render_mode='human', distribution_mode='easy', start_level=0, num_levels=500)
+        s = test_env.reset() / 255
+        for i in range(num_eval):
+            total_reward = 0
+            while True:
+                s = torch.FloatTensor(s).permute(2, 0, 1).unsqueeze(0)
+                a_prob, _ = self.model(s.to(self.device))
+                a = self.get_action(a_prob, deterministic=True).squeeze().cpu().numpy()
+                s, r, done, info = test_env.step(a)
+                total_reward += r
+                s = s / 255
+                if done:
+                    print('Total Reward:', total_reward)
+                    break
 
     def evaluate(self, num_eval=50, record=False):
         """
