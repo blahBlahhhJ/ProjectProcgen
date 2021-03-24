@@ -8,7 +8,7 @@ from ppo.ppo_agent import PPOAgent
 
 from ppo.ppo import ImpalaPPO
 
-from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor
+from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor, VecFrameStack
 
 # gym config
 ENV_NAME = 'fruitbot'
@@ -29,6 +29,7 @@ def _setup_parser():
     """
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument('--eval_model', type=str, default=None)
+    parser.add_argument('--stack', type=int, default=1)
 
     env_group = parser.add_argument_group("Env Args")
     env_group.add_argument('--env_name', type=str, default=ENV_NAME)
@@ -50,7 +51,7 @@ def main():
     """
     parser = _setup_parser()
     args = parser.parse_args()
-    data_config = {'input_dims': (3, 64, 64), 'num_classes': 15}
+    data_config = {'input_dims': (3 * args.stack, 64, 64), 'num_classes': 15}
 
     env = ProcgenEnv(
         num_envs=args.num_envs, 
@@ -63,6 +64,9 @@ def main():
     env = VecExtractDictObs(env, 'rgb')
     env = VecMonitor(env)
     env = VecNormalize(env, ob=False)
+    if args.stack > 1:
+        env = VecFrameStack(env, args.stack)
+    
     model = ImpalaPPO(data_config, args)
     
     agent = PPOAgent(env, model, data_config, args)

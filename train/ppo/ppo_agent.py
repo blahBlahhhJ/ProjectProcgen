@@ -387,7 +387,7 @@ class PPOAgent:
         parser.add_argument('--lr_start', type=float, default=LR_START)
         parser.add_argument('--gamma', type=float, default=GAMMA)
         parser.add_argument('--lam', type=float, default=LAMBDA)
-        parser.add_argument('--eval_freq', type=type, default=EVAL_FREQ)
+        parser.add_argument('--eval_freq', type=int, default=EVAL_FREQ)
 
         return parser
 
