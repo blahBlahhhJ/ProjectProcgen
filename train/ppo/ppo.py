@@ -58,16 +58,23 @@ class ImpalaPPO(nn.Module):
         nn.init.constant_(self.critic.bias.data, 0)
 
     def forward(self, x):
-        x = self.block1(x)
-        x = self.block2(x)
-        x = self.block3(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-
-        a = F.log_softmax(self.actor(x), dim=-1)
-        c = self.critic(x)
+        x = self.encode(x)
+        a, c = self.decode(x)
         return a, c
+
+    def encode(self, x):
+      x = self.block1(x)
+      x = self.block2(x)
+      x = self.block3(x)
+      x = torch.flatten(x, 1)
+      return x
+
+    def decode(self, x):
+      x = self.fc1(x)
+      x = F.relu(x)
+      a = F.log_softmax(self.actor(x), dim=-1)
+      c = self.critic(x)
+      return a, c
 
     @staticmethod
     def add_to_argparse(parser):

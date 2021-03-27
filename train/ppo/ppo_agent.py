@@ -272,6 +272,9 @@ class PPOAgent:
             Test the model on unseen levels (with rendering).
         """
         test_env = gym.make('procgen:procgen-'+self.config.env_name+'-v0', render_mode='human', distribution_mode='easy', start_level=0, num_levels=500)
+        if self.config.stack > 1:
+            test_env = VecFrameStack(test_env, self.config.stack)
+        
         s = test_env.reset() / 255
         for i in range(num_eval):
             total_reward = 0
@@ -301,8 +304,10 @@ class PPOAgent:
         )
         eval_env = VecExtractDictObs(eval_env, 'rgb')
         eval_env = VecMonitor(eval_env)
-        eval_env = VecNormalize(eval_env, ob=False)
-        
+        eval_env = VecNormalize(eval_env, ob=False) 
+        if self.config.stack > 1:
+            eval_env = VecFrameStack(eval_env, self.config.stack)
+
         infos = []
         
         s = eval_env.reset() / 255
@@ -387,7 +392,7 @@ class PPOAgent:
         parser.add_argument('--lr_start', type=float, default=LR_START)
         parser.add_argument('--gamma', type=float, default=GAMMA)
         parser.add_argument('--lam', type=float, default=LAMBDA)
-        parser.add_argument('--eval_freq', type=type, default=EVAL_FREQ)
+        parser.add_argument('--eval_freq', type=int, default=EVAL_FREQ)
 
         return parser
 
