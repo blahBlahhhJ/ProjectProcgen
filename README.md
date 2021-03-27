@@ -30,6 +30,8 @@ $ python run.py --eval_model <path-to-your-model>
 | Argument | Default | Description |
 | -- | --- | --- |
 | `--eval_model` | None | The path of trained model (visualizing performance) |
+| `--stack` | 1 | The number of recent frames to stack together as input |
+| `--flare` | False | Boolean flag for whether to use FLARE |
 ### Environment Arguments
 | Argument | Default | Description |
 | -- | --- | --- |

@@ -10,6 +10,8 @@ from ppo.ppo import ImpalaPPO
 
 from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor, VecFrameStack
 
+from matplotlib import pyplot as plt
+
 # gym config
 ENV_NAME = 'fruitbot'
 NUM_ENVS = 64
@@ -30,6 +32,7 @@ def _setup_parser():
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument('--eval_model', type=str, default=None)
     parser.add_argument('--stack', type=int, default=1)
+    parser.add_argument('--flare', action='store_true')
 
     env_group = parser.add_argument_group("Env Args")
     env_group.add_argument('--env_name', type=str, default=ENV_NAME)
@@ -51,7 +54,13 @@ def main():
     """
     parser = _setup_parser()
     args = parser.parse_args()
-    data_config = {'input_dims': (3 * args.stack, 64, 64), 'num_classes': 15}
+
+    if args.flare:
+        num_channels = 3
+    else:
+        num_channels = 3 * args.stack
+
+    data_config = {'input_dims': (num_channels, 64, 64), 'num_classes': 15}
 
     env = ProcgenEnv(
         num_envs=args.num_envs, 

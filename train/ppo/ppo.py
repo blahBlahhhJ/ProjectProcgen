@@ -35,9 +35,9 @@ class ImpalaPPO(nn.Module):
         C, H, W = data_config['input_dims']
         num_classes = data_config['num_classes']
 
-        self.args = vars(args) if args is not None else {}
-        conv_dims = self.args.get('conv_dims', CONV_DIMS)
-        fc_dims = self.args.get('fc_dims', FC_DIMS)
+        self.args = args
+        conv_dims = self.args.conv_dims
+        fc_dims = self.args.fc_dims
 
         self.block1 = ImpalaBlock(C, conv_dims[0])
         H = (H - 2 - 1) // 2
@@ -48,7 +48,10 @@ class ImpalaPPO(nn.Module):
         self.block3 = ImpalaBlock(conv_dims[1], conv_dims[2])
         H = (H - 2 - 1) // 2
         W = (W - 2 - 1) // 2
-        self.fc1 = nn.Linear(conv_dims[2] * H * W, fc_dims[0])
+        fc_input_dim = conv_dims[2] * H * W
+        if self.args.flare:
+            fc_input_dim *= 2 * self.args.stack - 1
+        self.fc1 = nn.Linear(fc_input_dim, fc_dims[0])
         self.actor = nn.Linear(fc_dims[0], num_classes)
         self.critic = nn.Linear(fc_dims[0], 1)
 
@@ -58,8 +61,20 @@ class ImpalaPPO(nn.Module):
         nn.init.constant_(self.critic.bias.data, 0)
 
     def forward(self, x):
-        x = self.encode(x)
-        a, c = self.decode(x)
+        if self.args.flare:
+            B, SC, H, W = x.shape # (batch_size, stack_size * num_channels, height, width)
+            S = self.args.stack
+            C = SC // S
+
+            x = x.reshape(B * S, C, H, W) # (batch_size * stack_size, ...image_dim)
+            latent_vecs = self.encode(x).reshape(B, S, -1)  # (batch_size, stack_size, latent_size)
+            latent_diffs = latent_vecs[:, 1:] - latent_vecs[:, :-1] # (batch_size, stack_size - 1, latent_size)
+            latents = torch.cat([latent_vecs, latent_diffs], axis=1).reshape(B, -1) # (batch_size, (2 * stack_size - 1) * latent_size)
+            a, c = self.decode(latents)
+        else:
+            x = self.encode(x)
+            a, c = self.decode(x)
+        
         return a, c
 
     def encode(self, x):
