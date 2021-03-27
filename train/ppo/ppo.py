@@ -67,10 +67,10 @@ class ImpalaPPO(nn.Module):
             C = SC // S
 
             x = x.reshape(B * S, C, H, W) # (batch_size * stack_size, ...image_dim)
-            latent_vecs = self.encode(x).reshape(B, S, -1)  # (batch_size, stack_size, latent_size)
-            latent_diffs = latent_vecs[:, 1:] - latent_vecs[:, :-1] # (batch_size, stack_size - 1, latent_size)
-            latents = torch.cat([latent_vecs, latent_diffs], axis=1).reshape(B, -1) # (batch_size, (2 * stack_size - 1) * latent_size)
-            a, c = self.decode(latents)
+            x = self.encode(x).reshape(B, S, -1)  # (batch_size, stack_size, latent_size)
+            diff = x[:, 1:] - x[:, :-1] # (batch_size, stack_size - 1, latent_size)
+            x = torch.cat([x, diff], axis=1).reshape(B, -1) # (batch_size, (2 * stack_size - 1) * latent_size)
+            a, c = self.decode(x)
         else:
             x = self.encode(x)
             a, c = self.decode(x)
