@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import gym
 from procgen import ProcgenEnv
-from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor
+from utils.vec_envs import VecExtractDictObs, VecNormalize, VecMonitor, VecFrameStack
 
 # training config
 TRAIN_STEPS = 5e6
