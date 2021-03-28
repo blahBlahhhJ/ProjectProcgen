@@ -50,7 +50,9 @@ class ImpalaPPO(nn.Module):
         W = (W - 2 - 1) // 2
         fc_input_dim = conv_dims[2] * H * W
         if self.args.flare:
-            fc_input_dim *= 2 * self.args.stack - 1
+            fc_input_dim *= 2 * (self.args.stack - 1)
+            self.ln = nn.LayerNorm(fc_dims[0])
+        
         self.fc1 = nn.Linear(fc_input_dim, fc_dims[0])
         self.actor = nn.Linear(fc_dims[0], num_classes)
         self.critic = nn.Linear(fc_dims[0], 1)
@@ -68,8 +70,8 @@ class ImpalaPPO(nn.Module):
 
             x = x.reshape(B * S, C, H, W) # (batch_size * stack_size, ...image_dim)
             x = self.encode(x).reshape(B, S, -1)  # (batch_size, stack_size, latent_size)
-            diff = x[:, 1:] - x[:, :-1] # (batch_size, stack_size - 1, latent_size)
-            x = torch.cat([x, diff], axis=1).reshape(B, -1) # (batch_size, (2 * stack_size - 1) * latent_size)
+            diff = x[:, 1:] - x[:, :-1].detach() # (batch_size, stack_size - 1, latent_size)
+            x = torch.cat([x[:, 1:], diff], axis=1).reshape(B, -1) # (batch_size, 2 * (stack_size - 1) * latent_size)
             a, c = self.decode(x)
         else:
             x = self.encode(x)
@@ -78,18 +80,22 @@ class ImpalaPPO(nn.Module):
         return a, c
 
     def encode(self, x):
-      x = self.block1(x)
-      x = self.block2(x)
-      x = self.block3(x)
-      x = torch.flatten(x, 1)
-      return x
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = torch.flatten(x, 1)
+        return x
 
     def decode(self, x):
-      x = self.fc1(x)
-      x = F.relu(x)
-      a = F.log_softmax(self.actor(x), dim=-1)
-      c = self.critic(x)
-      return a, c
+        x = self.fc1(x)
+        if self.args.flare:
+            x = self.ln(x)
+        else:
+            x = F.relu(x)
+        
+        a = F.log_softmax(self.actor(x), dim=-1)
+        c = self.critic(x)
+        return a, c
 
     @staticmethod
     def add_to_argparse(parser):
