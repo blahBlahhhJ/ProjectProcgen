@@ -72,11 +72,10 @@ class ImpalaPPO(nn.Module):
             x = self.encode(x).reshape(B, S, -1)  # (batch_size, stack_size, latent_size)
             diff = x[:, 1:] - x[:, :-1].detach() # (batch_size, stack_size - 1, latent_size)
             x = torch.cat([x[:, 1:], diff], axis=1).reshape(B, -1) # (batch_size, 2 * (stack_size - 1) * latent_size)
-            a, c = self.decode(x)
         else:
             x = self.encode(x)
-            a, c = self.decode(x)
-        
+
+        a, c = self.decode(x)
         return a, c
 
     def encode(self, x):
