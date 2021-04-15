@@ -33,6 +33,7 @@ def _setup_parser():
     parser.add_argument('--eval_model', type=str, default=None)
     parser.add_argument('--stack', type=int, default=1)
     parser.add_argument('--flare', action='store_true')
+    parser.add_argument('--mixreg', action='store_true')
 
     env_group = parser.add_argument_group("Env Args")
     env_group.add_argument('--env_name', type=str, default=ENV_NAME)

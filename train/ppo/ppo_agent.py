@@ -24,6 +24,7 @@ GAMMA = .999
 LAMBDA = .95
 ENT_COEF = .01
 CL_COEF = 0.5
+L2_COEF = 1e-4
 LR_START = 5e-4
 
 categorical = torch.distributions.categorical.Categorical
@@ -47,7 +48,7 @@ class PPOAgent:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print('Using', self.device)
         self.model = model.to(self.device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start, weight_decay=self.config.l2)
 
         if self.step != 0:
             self.load()
@@ -77,7 +78,6 @@ class PPOAgent:
         self.env.ret_rms.mean = checkpoint['env_mean']
         self.env.ret_rms.var = checkpoint['env_var']
         print("loaded")
-
 
     def get_action(self, a_logprob, deterministic=False):
         """
@@ -117,6 +117,23 @@ class PPOAgent:
         s = torch.FloatTensor(s).permute(0, 3, 1, 2)
         return s.to(self.device)
     
+    def _mixreg(self, states, returns, actions, values, logprobs):
+        batch_size = states.shape[0]
+        coef = torch.FloatTensor(np.random.beta(0.2, 0.2, size=batch_size))
+        seq_indices = torch.arange(batch_size)
+        rand_indices = torch.randperm(batch_size)
+        indices = torch.where(coef > 0.5, seq_indices, rand_indices)
+        other_indices = torch.where(coef > 0.5, rand_indices, seq_indices)
+        coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
+
+        mix_states = coef.unsqueeze(2).unsqueeze(3).repeat(1, *states.shape[1:]) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3).repeat(1, *states.shape[1:]) * states[other_indices, :, :, :]
+        mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
+        mix_actions = actions[indices, :]
+        mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
+        mix_logprobs = coef.repeat(1, logprobs.shape[1]) * logprobs[indices, :] + (1 - coef).repeat(1, logprobs.shape[1]) * logprobs[other_indices, :]
+
+        return mix_states, mix_returns, mix_actions, mix_values, mix_logprobs
+
     def gather_trajectory(self, traj_bar):
         """
             Gather trajectory of length UPDATE_FREQ.
@@ -232,6 +249,8 @@ class PPOAgent:
                 the log probability of each action
         """
         states, returns, actions, values, logprobs = self._to_torch(states, returns, actions, values, logprobs)
+        if self.config.mixreg:
+            states, returns, actions, values, logprobs = self._mixreg(states, returns, actions, values, logprobs)
         # normalize advantages
         with torch.no_grad():
             advs = returns - values     # (B, 1)
@@ -389,6 +408,7 @@ class PPOAgent:
         parser.add_argument('--clip_range', type=float, default=CLIP_RANGE)
         parser.add_argument('--ent', type=float, default=ENT_COEF)
         parser.add_argument('--cl', type=float, default=CL_COEF)
+        parser.add_argument('--l2', type=float, default=L2_COEF)
         parser.add_argument('--lr_start', type=float, default=LR_START)
         parser.add_argument('--gamma', type=float, default=GAMMA)
         parser.add_argument('--lam', type=float, default=LAMBDA)
