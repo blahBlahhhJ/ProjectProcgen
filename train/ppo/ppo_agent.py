@@ -102,12 +102,16 @@ class PPOAgent:
             Normalize for states, unsqueeze axis for returns actions values.
         """
         states = states / 255
-        states = torch.FloatTensor(states).permute(0, 3, 1, 2).to(self.device) # (B, C, H, W)
-        returns = torch.FloatTensor(returns).unsqueeze(1).to(self.device) # (B, 1)
-        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device) # (B, 1)
-        values = torch.FloatTensor(values).unsqueeze(1).to(self.device) # (B, 1)
-        logprobs = torch.FloatTensor(logprobs).to(self.device) # (B, A)
-        return states, returns, actions, values, logprobs
+        states = torch.FloatTensor(states).permute(0, 3, 1, 2) # (B, C, H, W)
+        returns = torch.FloatTensor(returns).unsqueeze(1) # (B, 1)
+        actions = torch.LongTensor(actions).unsqueeze(1) # (B, 1)
+        values = torch.FloatTensor(values).unsqueeze(1) # (B, 1)
+        logprobs = torch.FloatTensor(logprobs) # (B, A)
+
+        if self.config.mixreg:
+            states, returns, actions, values, logprobs = self._mixreg(states, returns, actions, values, logprobs)
+        
+        return states.to(self.device), returns.to(self.device), actions.to(self.device), values.to(self.device), logprobs.to(self.device)
 
     def _frame_to_torch(self, s):
         """
@@ -249,8 +253,7 @@ class PPOAgent:
                 the log probability of each action
         """
         states, returns, actions, values, logprobs = self._to_torch(states, returns, actions, values, logprobs)
-        if self.config.mixreg:
-            states, returns, actions, values, logprobs = self._mixreg(states, returns, actions, values, logprobs)
+        
         # normalize advantages
         with torch.no_grad():
             advs = returns - values     # (B, 1)
