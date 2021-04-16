@@ -19,10 +19,10 @@ coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
 
 print(indices.shape, other_indices.shape, coef.shape)
 
-mix_states = coef.unsqueeze(2).unsqueeze(3).repeat(1, *states.shape[1:]) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3).repeat(1, *states.shape[1:]) * states[other_indices, :, :, :]
+mix_states = coef.unsqueeze(2).unsqueeze(3) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3) * states[other_indices, :, :, :]
 mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
 mix_actions = actions[indices, :]
 mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
-mix_logprobs = coef.repeat(1, logprobs.shape[1]) * logprobs[indices, :] + (1 - coef).repeat(1, logprobs.shape[1]) * logprobs[other_indices, :]
+mix_logprobs = coef * logprobs[indices, :] + (1 - coef) * logprobs[other_indices, :]
 
 print(mix_states.shape, mix_returns.shape, mix_actions.shape, mix_values.shape, mix_logprobs.shape)
