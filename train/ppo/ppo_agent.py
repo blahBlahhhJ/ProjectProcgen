@@ -24,7 +24,7 @@ GAMMA = .999
 LAMBDA = .95
 ENT_COEF = .01
 CL_COEF = 0.5
-L2_COEF = 1e-4
+L2_COEF = 0
 LR_START = 5e-4
 
 categorical = torch.distributions.categorical.Categorical
@@ -125,12 +125,10 @@ class PPOAgent:
         with torch.no_grad():
             batch_size = states.shape[0]
             coef = torch.FloatTensor(np.random.beta(0.2, 0.2, size=batch_size))
-            # seq_indices = torch.arange(batch_size)
-            # rand_indices = torch.randperm(batch_size)
-            # indices = torch.where(coef > 0.5, seq_indices, rand_indices)
-            # other_indices = torch.where(coef > 0.5, rand_indices, seq_indices)
-            indices = torch.arange(batch_size)
-            other_indices = torch.randperm(batch_size)
+            seq_indices = torch.arange(batch_size)
+            rand_indices = torch.randperm(batch_size)
+            indices = torch.where(coef > 0.5, seq_indices, rand_indices)
+            other_indices = torch.where(coef > 0.5, rand_indices, seq_indices)
             coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
             
             mix_states = coef.unsqueeze(2).unsqueeze(3) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3) * states[other_indices, :, :, :]
