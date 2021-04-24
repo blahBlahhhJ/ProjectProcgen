@@ -109,9 +109,9 @@ class PPOAgent:
         logprobs = torch.FloatTensor(logprobs) # (B, A)
 
         if self.config.mixreg:
-            coef, indices, other_indices, returns, actions, values, logprobs = self._mixreg(states, returns, actions, values, logprobs)
+            states, returns, actions, values, logprobs = self._mixreg(states, returns, actions, values, logprobs)
         
-        return coef.to(self.device), indices.to(self.device), other_indices.to(self.device), states.to(self.device), returns.to(self.device), actions.to(self.device), values.to(self.device), logprobs.to(self.device)
+        return states.to(self.device), returns.to(self.device), actions.to(self.device), values.to(self.device), logprobs.to(self.device)
 
     def _frame_to_torch(self, s):
         """
@@ -124,18 +124,23 @@ class PPOAgent:
     def _mixreg(self, states, returns, actions, values, logprobs):
         with torch.no_grad():
             batch_size = states.shape[0]
-            coef = torch.FloatTensor(np.random.beta(0.2, 0.2, size=batch_size))
+            # coef = torch.FloatTensor(np.random.beta(0.2, 0.2, size=batch_size))
             indices = torch.arange(batch_size)
             other_indices = torch.randperm(batch_size)
-            coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
+            # coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
             
             # mix_states = coef.unsqueeze(2).unsqueeze(3) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3) * states[other_indices, :, :, :]
-            mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
+            # mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
+            # mix_actions = actions[indices, :]
+            # mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
+            # mix_logprobs = coef * logprobs[indices, :] + (1 - coef) * logprobs[other_indices, :]
+            mix_states = 0.9 * states[indices, :, :, :] + 0.1 * states[other_indices, :, :, :]
+            mix_returns = 0.9 * returns[indices, :] + 0.1 * returns[other_indices, :]
             mix_actions = actions[indices, :]
-            mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
-            mix_logprobs = coef * logprobs[indices, :] + (1 - coef) * logprobs[other_indices, :]
+            mix_values = 0.9 * values[indices, :] + 0.1 * values[other_indices, :]
+            mix_logprobs = 0.9 * logprobs[indices, :] + 0.1 * logprobs[other_indices, :]
 
-        return coef, indices, other_indices, mix_returns, mix_actions, mix_values, mix_logprobs
+        return mix_states, mix_returns, mix_actions, mix_values, mix_logprobs
 
     def gather_trajectory(self, traj_bar):
         """
@@ -251,19 +256,14 @@ class PPOAgent:
             logprobs: (B, A)
                 the log probability of each action
         """
-        coef, indices, other_indices, states, returns, actions, values, logprobs = self._to_torch(states, returns, actions, values, logprobs)
+        states, returns, actions, values, logprobs = self._to_torch(states, returns, actions, values, logprobs)
         
         # normalize advantages
         with torch.no_grad():
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
-        if self.config.mixreg:
-            latent = self.model.encode(states)
-            mix_latent = coef * latent[indices, :] + ((1 - coef) * latent[other_indices, :]).detach()
-            new_logprobs, v = self.model.decode(mix_latent)
-        else:
-            new_logprobs, v = self.model(states)    # (B, A), (B, 1)
+        new_logprobs, v = self.model(states)    # (B, A), (B, 1)
 
 
         # entropy bonus for exploration (entropy=-∑p*logp)
