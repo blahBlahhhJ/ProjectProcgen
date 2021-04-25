@@ -8,10 +8,8 @@ mix_beta = 1e-5
 betas = []
 
 for i in range(num_loops):
-    for j in range(num_epochs):
-        for k in range(num_batches):
-            if i < 5:
-                mix_beta += (0.2 - 1e-5) / num_batches / num_epochs / num_loops / 2
-            betas.append(mix_beta)
+    if mix_beta < 0.2:
+        mix_beta += (0.2 - 1e-5) / (num_loops * 0.6)
+    betas.append(mix_beta)
 plt.plot(betas)
 plt.show()

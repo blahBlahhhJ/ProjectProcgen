@@ -50,6 +50,9 @@ class PPOAgent:
         self.model = model.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start, weight_decay=self.config.l2)
 
+        if self.config.mixreg:
+            self.mix_alpha = 1e-5
+
         if self.step != 0:
             self.load()
 
@@ -124,21 +127,21 @@ class PPOAgent:
     def _mixreg(self, states, returns, actions, values, logprobs):
         with torch.no_grad():
             batch_size = states.shape[0]
-            # coef = torch.FloatTensor(np.random.beta(0.2, 0.2, size=batch_size))
+            coef = torch.FloatTensor(np.random.beta(self.mix_alpha, self.mix_alpha, size=batch_size))
             indices = torch.arange(batch_size)
             other_indices = torch.randperm(batch_size)
-            # coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
+            coef = torch.where(coef > 0.5, coef, 1 - coef).unsqueeze(1)
             
-            # mix_states = coef.unsqueeze(2).unsqueeze(3) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3) * states[other_indices, :, :, :]
-            # mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
-            # mix_actions = actions[indices, :]
-            # mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
-            # mix_logprobs = coef * logprobs[indices, :] + (1 - coef) * logprobs[other_indices, :]
-            mix_states = 0.9 * states[indices, :, :, :] + 0.1 * states[other_indices, :, :, :]
-            mix_returns = 0.9 * returns[indices, :] + 0.1 * returns[other_indices, :]
+            mix_states = coef.unsqueeze(2).unsqueeze(3) * states[indices, :, :, :] + (1 - coef).unsqueeze(2).unsqueeze(3) * states[other_indices, :, :, :]
+            mix_returns = coef * returns[indices, :] + (1 - coef) * returns[other_indices, :]
             mix_actions = actions[indices, :]
-            mix_values = 0.9 * values[indices, :] + 0.1 * values[other_indices, :]
-            mix_logprobs = 0.9 * logprobs[indices, :] + 0.1 * logprobs[other_indices, :]
+            mix_values = coef * values[indices, :] + (1 - coef) * values[other_indices, :]
+            mix_logprobs = coef * logprobs[indices, :] + (1 - coef) * logprobs[other_indices, :]
+            # mix_states = 0.9 * states[indices, :, :, :] + 0.1 * states[other_indices, :, :, :]
+            # mix_returns = 0.9 * returns[indices, :] + 0.1 * returns[other_indices, :]
+            # mix_actions = actions[indices, :]
+            # mix_values = 0.9 * values[indices, :] + 0.1 * values[other_indices, :]
+            # mix_logprobs = 0.9 * logprobs[indices, :] + 0.1 * logprobs[other_indices, :]
 
         return mix_states, mix_returns, mix_actions, mix_values, mix_logprobs
 
@@ -403,6 +406,8 @@ class PPOAgent:
                 eval_log.set_description_str(f'Eval Reward: {eval_reward}')
             if i % self.config.saving_freq == 0:
                 self.save()
+            if self.config.mixreg and self.mix_alpha < 0.2:
+                self.mix_alpha += (0.2 - 1e-5) / (0.6 * num_loops)
         self.save()
 
     @staticmethod
