@@ -51,7 +51,7 @@ class PPOAgent:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr_start, weight_decay=self.config.l2)
 
         if self.config.mixreg:
-            self.mix_alpha = 1e-5
+            self.mix_alpha = 0.2
 
         if self.step != 0:
             self.load()
@@ -406,8 +406,8 @@ class PPOAgent:
                 eval_log.set_description_str(f'Eval Reward: {eval_reward}')
             if i % self.config.saving_freq == 0:
                 self.save()
-            if self.config.mixreg and self.mix_alpha < 0.2:
-                self.mix_alpha += (0.2 - 1e-5) / (0.6 * num_loops)
+            if self.config.mixreg and self.mix_alpha > 1e-5:
+                self.mix_alpha -= (0.2 - 1e-5) / (num_loops)
         self.save()
 
     @staticmethod
