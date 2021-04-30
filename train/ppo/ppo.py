@@ -62,7 +62,7 @@ class ImpalaPPO(nn.Module):
         nn.init.orthogonal_(self.critic.weight.data, gain=1)
         nn.init.constant_(self.critic.bias.data, 0)
 
-    def forward(self, x):
+    def forward(self, x, coef=None, rand_indices=None):
         if self.args.flare:
             B, SC, H, W = x.shape # (batch_size, stack_size * num_channels, height, width)
             S = self.args.stack
@@ -73,15 +73,17 @@ class ImpalaPPO(nn.Module):
             diff = x[:, 1:] - x[:, :-1].detach() # (batch_size, stack_size - 1, latent_size)
             x = torch.cat([x[:, 1:], diff], axis=1).reshape(B, -1) # (batch_size, 2 * (stack_size - 1) * latent_size)
         else:
-            x = self.encode(x)
+            x = self.encode(x, coef, rand_indices)
 
         a, c = self.decode(x)
         return a, c
 
-    def encode(self, x):
+    def encode(self, x, coef=None, rand_indices=None):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
+        if coef is not None:
+          x = coef * x + (1 - coef) * x[rand_indices, :, :, :]
         x = torch.flatten(x, 1)
         return x
 
