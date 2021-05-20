@@ -5,6 +5,8 @@ This project allows quick and easy experiment on [OpenAI's Procgen Benchmark](ht
 Unlike [OpenAI's baseline](https://github.com/openai/baselines), this project is implemented using PyTorch.
 
 ## Demo on Fruitbot Environment
+(A good agent only eats fruits but not other foods.)
+
 ![image](./assets/demo.gif)
 
 Currently supported methods:
