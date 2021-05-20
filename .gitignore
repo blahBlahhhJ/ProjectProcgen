@@ -131,3 +131,4 @@ dmypy.json
 # customize
 .vscode/
 results/
+plot.ipynb

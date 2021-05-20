@@ -4,12 +4,15 @@ This project allows quick and easy experiment on [OpenAI's Procgen Benchmark](ht
 
 Unlike [OpenAI's baseline](https://github.com/openai/baselines), this project is implemented using PyTorch.
 
+## Demo on Fruitbot Environment
+![image](./assets/demo.gif)
+
 Currently supported methods:
 - Proximal Policy Optimization (PPO)
 - Deep Q Learning [probably won't work]
 
 ## Getting started
-### Install Dependencies (untested)
+### Install Dependencies
 ```shell
 $ conda env create -f environment.yml
 $ conda activate procgen
@@ -19,6 +22,19 @@ $ conda activate procgen
 ```shell
 $ cd train
 $ python run.py
+```
+### Run our final model
+```shell
+$ cd train
+$ python run.py --mixreg --num_levels 50 --l2 0
+```
+### Logs/Plots...
+* All plots in the report are in `train/results/logs/PPO/plots`
+* All testing curves are in `train/results/logs/PPO/eval_csv`
+* Launching Tensorboard
+```shell
+$ cd train
+$ tensorboard --logdir results/logs
 ```
 ### Visualize Performance
 ```shell
@@ -32,6 +48,7 @@ $ python run.py --eval_model <path-to-your-model>
 | `--eval_model` | None | The path of trained model (visualizing performance) |
 | `--stack` | 1 | The number of recent frames to stack together as input |
 | `--flare` | False | Boolean flag for whether to use FLARE |
+| `--mixreg` | False | Boolean flag for whether to use mixreg |
 ### Environment Arguments
 | Argument | Default | Description |
 | -- | --- | --- |
